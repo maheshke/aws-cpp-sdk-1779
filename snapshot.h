@@ -7,7 +7,6 @@
 #include <fstream>
 
 #include <unistd.h>
-#include <pthread.h>
 
 #include <aws/core/client/AsyncCallerContext.h>
 #include <aws/ebs/EBSClient.h>
@@ -47,30 +46,6 @@ class SnapshotContext : public Aws::Client::AsyncCallerContext
 
     private:
         Snapshot* mSnapshot;
-};
-
-/**
- * Process context to be passed as thread argument.
- */
-struct ProcessContext
-{
-    pid_t pid;
-};
-
-class ThreadExecutor
-{
-    pthread_t mChildTID;
-    void *mThreadArg;
-
-    void *(*thread_routine) (void *);
-    void setThreadAttributes(pthread_attr_t *attr);
-
-  public:
-    ThreadExecutor(void *(*start_routine) (void *), void*);
-
-    void run();
-
-    virtual ~ThreadExecutor() = default;
 };
 
 class ProcessExecutor

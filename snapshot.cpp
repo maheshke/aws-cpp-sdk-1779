@@ -9,12 +9,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
-#include <ctime>
-#include <chrono>
-
 #include "snapshot.h"
 
-#include <aws/core/auth/AWSCredentials.h>
 #include <aws/ebs/model/ListSnapshotBlocksRequest.h>
 #include <aws/ebs/model/GetSnapshotBlockRequest.h>
 
@@ -22,34 +18,6 @@
 #define GB (KB * KB * KB)
 
 using namespace std;
-
-static void* wait_for_process(void *param)
-{
-  int status;
-
-  ProcessContext *pc = (ProcessContext*)param;
-  printf("Waiting for child PID %d....\n", pc->pid);
-
-  if(waitpid(pc->pid, &status, WUNTRACED | WCONTINUED) == -1)
-  {
-    const char *msg = "Error while waiting for new process.";
-    printf("Errno on waitpid %d.\n", errno);
-    printf(msg);
-  }
-
-  if (WIFEXITED(status)) {
-    printf("Process exited with status: %d.\n", WEXITSTATUS(status));
-  }
-  else if (WIFSIGNALED(status)) {
-    printf("Process killed by signal: %d.\n", WTERMSIG(status));
-  }
-
-  printf("Child %d exited.\n", pc->pid);
-
-  delete pc;
-
-  return NULL;
-}
 
 ProcessExecutor::ProcessExecutor(Snapshot *pOperation):
     mOperation(pOperation)
@@ -129,19 +97,25 @@ void ProcessExecutor::run()
     exit(exitStatus);
   }
 
+  // wait for child
   {
-    ProcessContext *pc = new ProcessContext();
-    pc->pid = mChildPID;
+    int status;
 
-    try
+    if(waitpid(mChildPID, &status, WUNTRACED | WCONTINUED) == -1)
     {
-      ThreadExecutor executor = ThreadExecutor(
-        &wait_for_process, (void*)pc);
-      executor.run();
-    } catch(std::exception &e) {
-      printf("Failed to create waiting thread.");
-      delete pc;
+        const char *msg = "Error while waiting for new process.";
+        printf("Errno on waitpid %d.\n", errno);
+        printf(msg);
     }
+
+    if (WIFEXITED(status)) {
+        printf("Process %d exited with status: %d.\n", mChildPID, WEXITSTATUS(status));
+    }
+    else if (WIFSIGNALED(status)) {
+        printf("Process %d killed by signal: %d.\n", mChildPID, WTERMSIG(status));
+    }
+
+    printf("Child %d exited.\n", mChildPID);
   }
 }
 
@@ -150,68 +124,6 @@ ProcessExecutor::~ProcessExecutor ()
   if(mOperation != NULL)
   {
     deleteOperation();
-  }
-}
-
-ThreadExecutor::ThreadExecutor(void *(*start_routine) (void *),
-                               void *pThreadArg):
-  mThreadArg(pThreadArg), thread_routine(start_routine) {}
-
-void ThreadExecutor::run()
-{
-  printf("Executing operation in thread.\n");
-  pthread_attr_t attr;
-
-  // Initialize thread attributes.
-  int s = pthread_attr_init(&attr);
-  if (s != 0)
-  {
-    printf("Error while initializing thread attributes: %d.", s);
-    throw std::runtime_error(
-      "Error while initializing thread attributes");
-  }
-  // Set threading attributes.
-  setThreadAttributes(&attr);
-
-  // Create new thread.
-  s = pthread_create(&mChildTID, &attr, thread_routine, mThreadArg);
-  if (s != 0)
-  {
-    switch(s)
-    {
-      const char *msg;
-      case EAGAIN:
-        msg = "Error while creating new thread. System limit reached.";
-        printf(msg);
-	throw std::runtime_error(msg);
-      case EINVAL:
-        msg = "Error while creating new thread. Invalid attribute.";
-        printf(msg);
-	throw std::runtime_error(msg);
-      default:
-        msg = "Error while creating new thread";
-        printf("%s: %d.", msg, s);
-	throw std::runtime_error(msg);
-    }
-  }
-
-  // Destroy thread attributes.
-  s = pthread_attr_destroy(&attr);
-  if (s != 0)
-  {
-    // Ignore this?
-    printf("Error while destroying thread attributes: %d.", s);
-  }
-}
-
-void ThreadExecutor::setThreadAttributes(pthread_attr_t *attr)
-{
-  int s = pthread_attr_setdetachstate(attr, PTHREAD_CREATE_DETACHED);
-  if (s != 0)
-  {
-      const char* msg = "Error while setting thread detach state";
-      printf("%s: %d.", msg, s);
-      throw std::runtime_error(msg);
   }
 }
 

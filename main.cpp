@@ -99,12 +99,6 @@ int main(int argc, char **argv)
 
         ProcessExecutor executor = ProcessExecutor(snapshot);
         executor.run();
-
-        while(true)
-        {
-            sleep(1);
-        }
-
     }
     Aws::ShutdownAPI(options);
 
